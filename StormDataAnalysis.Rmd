@@ -6,7 +6,7 @@ output: html_document
 ---
 
 Data download and unzipping for reference
-```{r}
+```{r download}
 #library(R.utils)
 #dir.create("data")
 #download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
@@ -14,23 +14,24 @@ Data download and unzipping for reference
 #bunzip2("data/StormData.csv.bz2")
 ```
 
-Read data and select only interesting columns for the analyisis. Empty string is null.
 ```{r}
 library(data.table)
-storm <- fread("data/StormData.csv", 
-               select = c("BGN_DATE","STATE", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP",
-                          "CROPDMG", "CROPDMGEXP", "REFNUM"),
-               na.strings = "",
-               stringsAsFactors = TRUE)
 
 ```
 
-Transformations
-```{r}
+Read data and select only interesting columns for the analyisis. Empty string is null.
+```{r readData, cache=TRUE}
+storm <- fread("data/StormData.csv")
+str(storm)
+```
+
+Convert begin date to date
+```{r preprocess1}
 storm[,BGN_DATE:=as.Date(BGN_DATE, format = "%m/%d/%Y") ]
 ```
 
-```{r}
+Convert property damage and crop damage to comparable dollar amounts by multiplying the amount by the exponent. For exponent we use “K” for thousands, “M” for millions, and “B” for billions as documented. 
+```{r preprocess2, cache=TRUE}
 convertDamage <- function(dmgexp,dmg) {
     mult <- switch(toupper(dmgexp),
            "K" = 1E3,
@@ -53,17 +54,40 @@ storm[,PDMG:=mapply(convertDamage,.SD[,PROPDMGEXP],.SD[,PROPDMG])]
     
 ```
 
+
+
 ```{r}
-head(storm[order(PDMG,decreasing = TRUE),])
+head(storm[order(PDMG,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","PROPDMG","PROPDMGEXP", "PDMG"),with=FALSE])
 
 ```
 
+The maximum property damage is a magnitude larger than the following ones. As this is related to a flood of Napa river in 2005, this is not feasible. The following three seem to be related to hurricane Katrina and it's not feasible that a flood would cause a magnitude order bigger damages.
 
+```{r}
+storm[REFNUM==605943,REMARKS]
+```
 
+According to the event description it seems that property damage magnitude should be millions instead of billions. In any case this data point would dominate the whole analysis and we have to either fix or remove it. For the further analysis, change the PROPDMGEXP to "M" and recalcucate property damages.
+```{r, cache=TRUE}
+storm[REFNUM==605943,PROPDMGEXP:="M"]
+storm[,PDMG:=mapply(convertDamage,.SD[,PROPDMGEXP],.SD[,PROPDMG])]
+```
+
+```{r}
+head(storm[order(CDMG,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","CROPDMG","CROPDMGEXP", "CDMG"),with=FALSE])
+head(storm[order(INJURIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
+head(storm[order(FATALITIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
+
+```
+
+In other damage categories there don't seem to be such glaring errors. In this kind of case finding outliers is difficult as it's expected that vast majority of events cause no significant damages, but then there are rare cases like hurricane Katrina, which cause enormous damages. So outier removal or fixing must be done case by case. 
+
+In addition to outliers we can see a further problem, which will complicate the analysis. The EVTYPE variable has almost 1000 individual variables, many of which should be combined. As the original assignment explicitly stated that the types of events should be researched as indicated in the EVTYPE variable, we won't go into that problem here.
 
 ```{r}
 sum <- storm[,j=list(inj=sum(INJURIES), fat=sum(FATALITIES), pdmg = sum(PDMG), cdmg= sum(CDMG)), by=EVTYPE]
 ```
 
+ggplot(sum[order(fat,decreasing=TRUE)][1:10], aes(x = reorder(EVTYPE,-fat) , y = fat)) + geom_bar(stat = "identity") +theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5))
 
-
+0
