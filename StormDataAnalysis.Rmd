@@ -1,12 +1,12 @@
 ---
-title: "StormDataAnalysis"
+title: "Storm Data Analysis"
 author: "Heli Pykälä"
-date: "2016-04-28"
+date: "2016-05-04"
 output: html_document
 ---
 
 Libraries
-```{r}
+```{r libraries, message = FALSE, warning = FALSE}
 library(R.utils)
 library(data.table)
 library(ggplot2)
@@ -14,18 +14,23 @@ library(ggplot2)
 ```
 
 
-Data download and unzipping for reference
+Data was downloaded from https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 28.4.2016
 ```{r download}
-#dir.create("data")
-#download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
-#              destfile = "data/StormData.csv.bz2", mode = "wb")
-#bunzip2("data/StormData.csv.bz2")
+
+if(!dir.exists("data")) {
+    dir.create("data")
+}
+
+if(!file.exists("data/StormData.csv")) {
+    download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
+                  destfile = "data/StormData.csv.bz2", mode = "wb")
+    bunzip2("data/StormData.csv.bz2")
+}
 ```
 
-Read data and select only interesting columns for the analyisis. Empty string is null.
-```{r readData, cache=TRUE}
+Read data.
+```{r readData, warnings = FALSE}
 storm <- fread("data/StormData.csv")
-str(storm)
 ```
 
 Convert begin date to date
@@ -33,21 +38,13 @@ Convert begin date to date
 storm[,BGN_DATE:=as.Date(BGN_DATE, format = "%m/%d/%Y") ]
 ```
 
-Convert property damage and crop damage to comparable dollar amounts by multiplying the amount by the exponent. For exponent we use “K” for thousands, “M” for millions, and “B” for billions as documented.
-```{r preprocess2, cache=FALSE}
+Convert property damage and crop damage to comparable dollar amounts by multiplying the amount by the exponent. For multiplier we use “K” for thousands, “M” for millions, and “B” for billions as documented. For other exponent values we use multiplier 1, but they could be as well left out of analysis since such low amounts won't matter anyway.
+```{r preprocess2}
 convertDamage <- function(dmgexp,dmg) {
     mult <- switch(toupper(dmgexp),
            "K" = 1E3,
            "M" = 1E6,
            "B" = 1E9,
-           "1" = 1E1,
-           "2" = 1E2,
-           "3" = 1E3,
-           "4" = 1E4,
-           "5" = 1E5,
-           "6" = 1E6,
-           "7" = 1E7,
-           "8" = 1E8,
            1)
     mult*dmg
 }
@@ -59,36 +56,36 @@ storm[,PDMG:=mapply(convertDamage,.SD[,PROPDMGEXP],.SD[,PROPDMG])]
 
 
 
-```{r}
+```{r head1}
 head(storm[order(PDMG,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","PROPDMG","PROPDMGEXP", "PDMG"),with=FALSE])
 
 ```
 
 The maximum property damage is a magnitude larger than the following ones. This is related to a flood of Napa river in 2005. The following three seem to be related to hurricane Katrina and it's not feasible that a flood would cause a magnitude order bigger damages.
 
-```{r}
+```{r outlier}
 storm[REFNUM==605943,REMARKS]
 ```
 
-According to the event description it seems that property damage magnitude should be millions instead of billions. In any case this data point would dominate the whole analysis and we have to either fix or remove it. For the further analysis, change the PROPDMGEXP to "M" and recalcucate property damages.
-```{r, cache=FALSE}
+According to the event description it seems that property damage magnitude should be millions instead of billions. In any case this data point would dominate the whole analysis and we have to either fix or remove it. For the further analysis, change the PROPDMGEXP to "M" and recalculate property damages.
+```{r fixOutlier}
 storm[REFNUM==605943,PROPDMGEXP:="M"]
 storm[,PDMG:=mapply(convertDamage,.SD[,PROPDMGEXP],.SD[,PROPDMG])]
 ```
 
-```{r}
+```{r head2}
 head(storm[order(CDMG,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","CROPDMG","CROPDMGEXP", "CDMG"),with=FALSE])
 head(storm[order(INJURIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
 head(storm[order(FATALITIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
 
 ```
 
-In other damage categories there don't seem to be such glaring errors. In this kind of case finding outliers is difficult as it's expected that vast majority of events cause no significant damages, but then there are rare cases like hurricane Katrina, which cause enormous damages. So outier removal or fixing must be done case by case. 
+In other damage categories there don't seem to be such glaring errors. In this kind of case finding outliers is difficult as it's expected that vast majority of events cause no significant damages, but then there are rare cases, like hurricane Katrina, which cause enormous damages. So outlier removal or fixing must be done case by case. 
 
 In addition to outliers we can see a further problem, which will complicate the analysis. The EVTYPE variable has almost 1000 individual variables, many of which should be combined. We fix a few most obvious ones, but this would require further research.
 
 
-```{r}
+```{r fixEvtype}
 #TSTM is abbreviation for thunderstorm
 storm[,EVTYPE:=gsub("TSTM", "THUNDERSTORM",EVTYPE)]
 #a few hurricanes were named, so use hurricane for everything and also for typhoons
@@ -99,33 +96,33 @@ storm[,EVTYPE:=gsub("RIP CURRENTS", "RIP CURRENT", EVTYPE)]
 
 Next we aggregate the data by evtype and year
 
-```{r}
+```{r aggregateYearEvtype}
 sum <- storm[,j=list(INJURIES=sum(INJURIES), FATALITIES=sum(FATALITIES), PDMG = sum(PDMG), CDMG= sum(CDMG)), by=list(EVTYPE,YEAR=year(BGN_DATE))]
 ```
 
 
 Then see how the number of recorded event types has changed over years.
-```{r}
+```{r evtypes}
 nevtype <- sum[,j=list(EVTYPE=length(unique(EVTYPE))),by=YEAR]
 nevtype
 ```
 
-We see that until 1992 only few event types were recorded. Then the number of event types exploded and there are way too many unique event types. After the start of 2000 the number of evtypes has stabilized. To get reliable results we limit the scope of analysis to years later than 2000. Calculate the yearly averages by event type after 2000.
+We see that until 1992 only few event types were recorded. Then the number of event types exploded and there are way too many unique event types. After the start of 2000 the number of evtypes has stabilized. To get reliable results we limit the scope of analysis to years later than 2000. If it is necessary to study damages for longer period of time, much care should be taken to fix the event categorization in the 1990's. It also should be researched, if the reported damages are even comparable between earlier and later years. 
 
+Calculate the yearly averages by event type after year 2000.
 
-```{r}
-yearly2000 <- sum[YEAR > 2000,j=list(INJURIES=mean(INJURIES), FATALITIES=mean(FATALITIES), PDMG = mean(PDMG), CDMG= mean(CDMG)),by=EVTYPE]
+```{r aggregateByEvtype}
+meanDmg <- sum[YEAR > 2000,j=list(INJURIES=mean(INJURIES), FATALITIES=mean(FATALITIES), PDMG = mean(PDMG), CDMG= mean(CDMG)),by=EVTYPE]
 
 ```
 
 
-
 ## Weather events by harm done to the population
 
-Melt the data and pick the 10 most harmful events for both fatalities and injuries. Create new data table for fatalities and injuries by those events and recalculate the levels in order by number of injuries or deaths. As the magnitude of injuries is larger, this means ordering the factors by number of injuries in practice.
+Melt the data to long form and pick the 10 most harmful events for both fatalities and injuries. Create new data table for fatalities and injuries by those events and recalculate the levels in order by number of injuries or deaths. As the magnitude of injuries is larger than that of fatalities, this means in practice ordering the factors by number of injuries.
 
-```{r}
-popharm <- melt(yearly2000,"EVTYPE",c("INJURIES","FATALITIES"))
+```{r popharm}
+popharm <- melt(meanDmg,"EVTYPE",c("INJURIES","FATALITIES"))
 
 popharmevs <- unique(popharm[,head(.SD[order(-value)],10),by=variable]$EVTYPE)
 toppopharm <- popharm[EVTYPE %in% popharmevs,]
@@ -134,26 +131,40 @@ toppopharm$EVTYPE <- factor(toppopharm$EVTYPE, levels=unique(toppopharm$EVTYPE[o
 
 
 Plot the injuries and fatalities by event type. Notice that the y axis are different and there are much more injuries than fatalities.
-```{r}
-ggplot(toppopharm, aes(x = EVTYPE,y=value)) + 
+```{r figure1}
+ggplot(toppopharm, aes(x = EVTYPE,y=value, fill = variable)) + 
     geom_bar(stat = "identity") +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5))+
-    facet_grid(variable~.,scales = "free_y")
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5)) +
+    facet_grid(variable~.,scales = "free_y") +
+    labs(list(title = "Yearly injuries and fatalities in the USA caused by extreme weather 2001-2011",
+         x = "Event Types",
+         y = "Average yearly injuries/fatalities")) + 
+    scale_fill_brewer(palette = "Paired", direction = -1, guide=FALSE)
 ```
 
-From the plot we can see that tornado is the most harmful weather event causing about 1300 injuries and 100 deaths per year. The second most harmful event by both deaths and injuries is excessive heat killing about 80 and injuring 300 people per year. The third by injuries are thunderstorm winds but by fatalities it is outrun by lightnings, flash floods and floods.
+From the plot we can see that tornado is the most harmful weather event causing about 1300 injuries and 100 deaths per year. The second most harmful event by both deaths and injuries is excessive heat killing about 80 and injuring 300 people per year. The third by injuries are thunderstorm winds but by fatalities it is outrun by lightnings, flash floods, rip currents and floods.
 
 ## Weather events by economic damage
 
-```{r}
-yearly2000[,TOTDMG := PDMG+CDMG]
+Calculate the total damage by summing crop damage and property damage. Again melt the data and find the 10 most harmful event types, gather the data for all of them, and reorder them by total damage for plotting.
+```{r econharm}
+meanDmg[,TOTDMG := PDMG+CDMG]
 
-econharm <- melt(yearly2000, "EVTYPE", c("PDMG", "CDMG", "TOTDMG"))
+econharm <- melt(meanDmg, "EVTYPE", c("PDMG", "CDMG", "TOTDMG"))
 econharmevs <- unique(econharm[,head(.SD[order(-value)],10),by=variable]$EVTYPE)
-topeconharm <- econharm[EVTYPE %in% econharmevs,]
+topeconharm <- econharm[EVTYPE %in% econharmevs & variable %in% c("PDMG", "CDMG"),]
 topeconharm$EVTYPE <- factor(topeconharm$EVTYPE, levels=unique(topeconharm$EVTYPE[order(-topeconharm$value)]))
+topeconharm[,variable:=factor(variable, levels = c("PDMG","CDMG"), labels = c("Property damage", "Crop damage"))]
+```
 
-ggplot(topeconharm[variable %in% c("CDMG","PDMG")], aes(x = EVTYPE,y=value,fill=variable)) + 
+```{r figure2}
+ggplot(topeconharm, aes(x = EVTYPE,y=value/1E9,fill=variable)) + 
     geom_bar(stat = "identity") +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5))
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5)) +
+        labs(list(title = "Yearly economic damage in the USA \ncaused by extreme weather 2001-2011",
+         x = "Event Types",
+         y = "Average yearly economic damage (Billion $)")) +
+    scale_fill_brewer("",palette = "Paired", direction = -1)
 ```
