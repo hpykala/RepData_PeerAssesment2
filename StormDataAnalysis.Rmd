@@ -85,20 +85,75 @@ head(storm[order(FATALITIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "
 
 In other damage categories there don't seem to be such glaring errors. In this kind of case finding outliers is difficult as it's expected that vast majority of events cause no significant damages, but then there are rare cases like hurricane Katrina, which cause enormous damages. So outier removal or fixing must be done case by case. 
 
-In addition to outliers we can see a further problem, which will complicate the analysis. The EVTYPE variable has almost 1000 individual variables, many of which should be combined. As the original assignment explicitly stated that the types of events should be researched as indicated in the EVTYPE variable, we won't go into that problem here.
+In addition to outliers we can see a further problem, which will complicate the analysis. The EVTYPE variable has almost 1000 individual variables, many of which should be combined. We fix a few most obvious ones, but this would require further research.
+
 
 ```{r}
-sum <- storm[,j=list(INJURIES=sum(INJURIES), FATALITIES=sum(FATALITIES), PDMG = sum(PDMG), CDMG= sum(CDMG)), by=EVTYPE]
-popharm <- melt(sum,EVTYPE,c("INJURIES","FATALITIES"))
-toppopharm <- popharm[,head(.SD,10),by=variable]
+#TSTM is abbreviation for thunderstorm
+storm[,EVTYPE:=gsub("TSTM", "THUNDERSTORM",EVTYPE)]
+#a few hurricanes were named, so use hurricane for everything and also for typhoons
+storm[,EVTYPE:=gsub(".*HURRICANE.*", "HURRICANE",EVTYPE)]
+storm[,EVTYPE:=gsub(".*TYPHOON.*", "HURRICANE", EVTYPE)]
+storm[,EVTYPE:=gsub("RIP CURRENTS", "RIP CURRENT", EVTYPE)]
+```
+
+Next we aggregate the data by evtype and year
+
+```{r}
+sum <- storm[,j=list(INJURIES=sum(INJURIES), FATALITIES=sum(FATALITIES), PDMG = sum(PDMG), CDMG= sum(CDMG)), by=list(EVTYPE,YEAR=year(BGN_DATE))]
+```
+
+
+Then see how the number of recorded event types has changed over years.
+```{r}
+nevtype <- sum[,j=list(EVTYPE=length(unique(EVTYPE))),by=YEAR]
+nevtype
+```
+
+We see that until 1992 only few event types were recorded. Then the number of event types exploded and there are way too many unique event types. After the start of 2000 the number of evtypes has stabilized. To get reliable results we limit the scope of analysis to years later than 2000. Calculate the yearly averages by event type after 2000.
+
+
+```{r}
+yearly2000 <- sum[YEAR > 2000,j=list(INJURIES=mean(INJURIES), FATALITIES=mean(FATALITIES), PDMG = mean(PDMG), CDMG= mean(CDMG)),by=EVTYPE]
+
+```
+
+
+
+## Weather events by harm done to the population
+
+Melt the data and pick the 10 most harmful events for both fatalities and injuries. Create new data table for fatalities and injuries by those events and recalculate the levels in order by number of injuries or deaths. As the magnitude of injuries is larger, this means ordering the factors by number of injuries in practice.
+
+```{r}
+popharm <- melt(yearly2000,"EVTYPE",c("INJURIES","FATALITIES"))
+
+popharmevs <- unique(popharm[,head(.SD[order(-value)],10),by=variable]$EVTYPE)
+toppopharm <- popharm[EVTYPE %in% popharmevs,]
 toppopharm$EVTYPE <- factor(toppopharm$EVTYPE, levels=unique(toppopharm$EVTYPE[order(-toppopharm$value)]))
 ```
 
 
-
+Plot the injuries and fatalities by event type. Notice that the y axis are different and there are much more injuries than fatalities.
 ```{r}
-ggplot(toppopharm, aes(x = EVTYPE,y=value)) + geom_bar(stat = "identity") +theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5))+facet_grid(.~variable)
+ggplot(toppopharm, aes(x = EVTYPE,y=value)) + 
+    geom_bar(stat = "identity") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5))+
+    facet_grid(variable~.,scales = "free_y")
 ```
 
+From the plot we can see that tornado is the most harmful weather event causing about 1300 injuries and 100 deaths per year. The second most harmful event by both deaths and injuries is excessive heat killing about 80 and injuring 300 people per year. The third by injuries are thunderstorm winds but by fatalities it is outrun by lightnings, flash floods and floods.
 
-0
+## Weather events by economic damage
+
+```{r}
+yearly2000[,TOTDMG := PDMG+CDMG]
+
+econharm <- melt(yearly2000, "EVTYPE", c("PDMG", "CDMG", "TOTDMG"))
+econharmevs <- unique(econharm[,head(.SD[order(-value)],10),by=variable]$EVTYPE)
+topeconharm <- econharm[EVTYPE %in% econharmevs,]
+topeconharm$EVTYPE <- factor(topeconharm$EVTYPE, levels=unique(topeconharm$EVTYPE[order(-topeconharm$value)]))
+
+ggplot(topeconharm[variable %in% c("CDMG","PDMG")], aes(x = EVTYPE,y=value,fill=variable)) + 
+    geom_bar(stat = "identity") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5))
+```
