@@ -1,20 +1,24 @@
 ---
-title: "Storm Data Analysis"
+title: "Most harmful weather events across the USA 2001-2011"
 author: "Heli Pykälä"
 date: "2016-05-04"
 output: html_document
 ---
+##Synopsis
 
-Libraries
+In this report we research the most harmful weather events in the USA with respect to population health and economic consequences. We found that tornadoes cause most injuries and deaths thus being the most harmful weather event for population heath. For economic consequences most property and crop damage combined is caused by hurricanes and storm surges. Greatest crop damage is caused by drought, but amount is small compared to property damages. In this analysis we have used NOAA Storm data set for years 1950-2011, but limited examination to years between 2001 and 2011 for data quality reasons.
+
+##Data Processing
+
+Libraries necessary for the analysis
 ```{r libraries, message = FALSE, warning = FALSE}
 library(R.utils)
 library(data.table)
 library(ggplot2)
-
 ```
 
+Data was downloaded from https://d396qusza40orc.cloudfront.net/repdata/data/StormData.csv.bz2 on 2016-04-28.
 
-Data was downloaded from https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 28.4.2016
 ```{r download}
 
 if(!dir.exists("data")) {
@@ -29,7 +33,7 @@ if(!file.exists("data/StormData.csv")) {
 ```
 
 Read data.
-```{r readData, warnings = FALSE}
+```{r readData, warning = FALSE, message = FALSE, results="hide"}
 storm <- fread("data/StormData.csv")
 ```
 
@@ -57,7 +61,8 @@ storm[,PDMG:=mapply(convertDamage,.SD[,PROPDMGEXP],.SD[,PROPDMG])]
 
 
 ```{r head1}
-head(storm[order(PDMG,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","PROPDMG","PROPDMGEXP", "PDMG"),with=FALSE])
+head(storm[order(PDMG,decreasing = TRUE),
+           c("REFNUM","BGN_DATE", "STATE", "EVTYPE","PROPDMG","PROPDMGEXP", "PDMG"),with=FALSE])
 
 ```
 
@@ -74,9 +79,12 @@ storm[,PDMG:=mapply(convertDamage,.SD[,PROPDMGEXP],.SD[,PROPDMG])]
 ```
 
 ```{r head2}
-head(storm[order(CDMG,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","CROPDMG","CROPDMGEXP", "CDMG"),with=FALSE])
-head(storm[order(INJURIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
-head(storm[order(FATALITIES,decreasing = TRUE),c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
+head(storm[order(CDMG,decreasing = TRUE),
+           c("REFNUM","BGN_DATE", "STATE", "EVTYPE","CROPDMG","CROPDMGEXP", "CDMG"),with=FALSE])
+head(storm[order(INJURIES,decreasing = TRUE),
+           c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
+head(storm[order(FATALITIES,decreasing = TRUE),
+           c("REFNUM","BGN_DATE", "STATE", "EVTYPE","INJURIES","FATALITIES"),with=FALSE])
 
 ```
 
@@ -87,23 +95,28 @@ In addition to outliers we can see a further problem, which will complicate the 
 
 ```{r fixEvtype}
 #TSTM is abbreviation for thunderstorm
-storm[,EVTYPE:=gsub("TSTM", "THUNDERSTORM",EVTYPE)]
+storm[,EVTYPE := gsub("TSTM", "THUNDERSTORM", EVTYPE)]
 #a few hurricanes were named, so use hurricane for everything and also for typhoons
-storm[,EVTYPE:=gsub(".*HURRICANE.*", "HURRICANE",EVTYPE)]
-storm[,EVTYPE:=gsub(".*TYPHOON.*", "HURRICANE", EVTYPE)]
-storm[,EVTYPE:=gsub("RIP CURRENTS", "RIP CURRENT", EVTYPE)]
+storm[,EVTYPE := gsub(".*HURRICANE.*", "HURRICANE", EVTYPE)]
+storm[,EVTYPE := gsub(".*TYPHOON.*", "HURRICANE", EVTYPE)]
+storm[,EVTYPE := gsub("RIP CURRENTS", "RIP CURRENT", EVTYPE)]
 ```
 
 Next we aggregate the data by evtype and year
 
 ```{r aggregateYearEvtype}
-sum <- storm[,j=list(INJURIES=sum(INJURIES), FATALITIES=sum(FATALITIES), PDMG = sum(PDMG), CDMG= sum(CDMG)), by=list(EVTYPE,YEAR=year(BGN_DATE))]
+sum <- storm[,j = list(INJURIES = sum(INJURIES), 
+                       FATALITIES = sum(FATALITIES), 
+                       PDMG = sum(PDMG), 
+                       CDMG = sum(CDMG)), 
+             by = list(EVTYPE, YEAR = year(BGN_DATE))]
 ```
 
 
 Then see how the number of recorded event types has changed over years.
 ```{r evtypes}
-nevtype <- sum[,j=list(EVTYPE=length(unique(EVTYPE))),by=YEAR]
+nevtype <- sum[,j = list(EVTYPE = length(unique(EVTYPE))), 
+               by = YEAR]
 nevtype
 ```
 
@@ -112,21 +125,27 @@ We see that until 1992 only few event types were recorded. Then the number of ev
 Calculate the yearly averages by event type after year 2000.
 
 ```{r aggregateByEvtype}
-meanDmg <- sum[YEAR > 2000,j=list(INJURIES=mean(INJURIES), FATALITIES=mean(FATALITIES), PDMG = mean(PDMG), CDMG= mean(CDMG)),by=EVTYPE]
+meanDmg <- sum[YEAR > 2000,
+               j = list(INJURIES = mean(INJURIES), 
+                        FATALITIES = mean(FATALITIES), 
+                        PDMG = mean(PDMG), 
+                        CDMG = mean(CDMG)), 
+               by = EVTYPE]
 
 ```
 
+##Results
 
-## Weather events by harm done to the population
+### Weather events by harm done to the population
 
 Melt the data to long form and pick the 10 most harmful events for both fatalities and injuries. Create new data table for fatalities and injuries by those events and recalculate the levels in order by number of injuries or deaths. As the magnitude of injuries is larger than that of fatalities, this means in practice ordering the factors by number of injuries.
 
 ```{r popharm}
-popharm <- melt(meanDmg,"EVTYPE",c("INJURIES","FATALITIES"))
+popharm <- melt(meanDmg, "EVTYPE", c("INJURIES", "FATALITIES"))
 
-popharmevs <- unique(popharm[,head(.SD[order(-value)],10),by=variable]$EVTYPE)
+popharmevs <- unique(popharm[,head(.SD[order(-value)],10), by = variable]$EVTYPE)
 toppopharm <- popharm[EVTYPE %in% popharmevs,]
-toppopharm$EVTYPE <- factor(toppopharm$EVTYPE, levels=unique(toppopharm$EVTYPE[order(-toppopharm$value)]))
+toppopharm$EVTYPE <- factor(toppopharm$EVTYPE, levels = unique(toppopharm$EVTYPE[order(-toppopharm$value)]))
 ```
 
 
@@ -135,36 +154,39 @@ Plot the injuries and fatalities by event type. Notice that the y axis are diffe
 ggplot(toppopharm, aes(x = EVTYPE,y=value, fill = variable)) + 
     geom_bar(stat = "identity") +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5)) +
-    facet_grid(variable~.,scales = "free_y") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+    facet_grid(variable~., scales = "free_y") +
     labs(list(title = "Yearly injuries and fatalities in the USA caused by extreme weather 2001-2011",
          x = "Event Types",
          y = "Average yearly injuries/fatalities")) + 
-    scale_fill_brewer(palette = "Paired", direction = -1, guide=FALSE)
+    scale_fill_brewer(palette = "Paired", direction = -1, guide = FALSE)
 ```
 
-From the plot we can see that tornado is the most harmful weather event causing about 1300 injuries and 100 deaths per year. The second most harmful event by both deaths and injuries is excessive heat killing about 80 and injuring 300 people per year. The third by injuries are thunderstorm winds but by fatalities it is outrun by lightnings, flash floods, rip currents and floods.
+From the plot we can see that tornado is the most harmful weather event causing about 1300 injuries and 100 deaths per year. The second most harmful event by both deaths and injuries is excessive heat killing about 80 and injuring 300 people per year. The third by injuries are thunderstorm winds but by fatalities it is exceeded by lightnings, flash floods, rip currents and floods.
 
-## Weather events by economic damage
+### Weather events by economic damage
 
 Calculate the total damage by summing crop damage and property damage. Again melt the data and find the 10 most harmful event types, gather the data for all of them, and reorder them by total damage for plotting.
 ```{r econharm}
 meanDmg[,TOTDMG := PDMG+CDMG]
 
 econharm <- melt(meanDmg, "EVTYPE", c("PDMG", "CDMG", "TOTDMG"))
-econharmevs <- unique(econharm[,head(.SD[order(-value)],10),by=variable]$EVTYPE)
+econharmevs <- unique(econharm[,head(.SD[order(-value)],10), by = variable]$EVTYPE)
 topeconharm <- econharm[EVTYPE %in% econharmevs & variable %in% c("PDMG", "CDMG"),]
-topeconharm$EVTYPE <- factor(topeconharm$EVTYPE, levels=unique(topeconharm$EVTYPE[order(-topeconharm$value)]))
-topeconharm[,variable:=factor(variable, levels = c("PDMG","CDMG"), labels = c("Property damage", "Crop damage"))]
+topeconharm$EVTYPE <- factor(topeconharm$EVTYPE, levels = unique(topeconharm$EVTYPE[order(-topeconharm$value)]))
+topeconharm[,variable := factor(variable, levels = c("PDMG","CDMG"), labels = c("Property damage", "Crop damage"))]
 ```
 
+Plot the economic damage by event type.
 ```{r figure2}
-ggplot(topeconharm, aes(x = EVTYPE,y=value/1E9,fill=variable)) + 
+ggplot(topeconharm, aes(x = EVTYPE, y = value/1E9, fill = variable)) + 
     geom_bar(stat = "identity") +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust=.5)) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
         labs(list(title = "Yearly economic damage in the USA \ncaused by extreme weather 2001-2011",
          x = "Event Types",
-         y = "Average yearly economic damage (Billion $)")) +
+         y = "Average yearly economic damage \n(Billion $)")) +
     scale_fill_brewer("",palette = "Paired", direction = -1)
 ```
+
+From the plot we can see that hurricanes cause the most economical damage 7.5 billion dollars per year, closely followed by storm surges. In most categories crop damages are small compared to property damages, but it can be seen that droughts cause considerable crop damages of 600 million dollars per year on average.
